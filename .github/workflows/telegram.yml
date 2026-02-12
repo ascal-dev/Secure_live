@@ -1,0 +1,25 @@
+name: Auto Telegram Post
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Cloudflare API
+        run: |
+          curl -s https://xxxxx.pages.dev/api/live \
+          -H "Authorization: Bearer TOKEN" > data.json
+
+      - name: Send Telegram Message
+        env:
+          BOT: ${{ secrets.TG_BOT_TOKEN }}
+          CHAT: ${{ secrets.TG_CHANNEL_ID }}
+        run: |
+          MSG="🏏 Sabse Sasta Live\n\n▶ Watch Now:\nhttps://xxxxx.pages.dev/player/hindi"
+          curl -s -X POST https://api.telegram.org/bot$BOT/sendMessage \
+          -d chat_id=$CHAT \
+          -d text="$MSG"
