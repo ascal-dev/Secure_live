@@ -1,81 +1,124 @@
-export async function onRequestGet({ params }) {
-  const event = params.event; // t20wc or ipl
-  const id = params.id;       // willowbycric, tnt, etc
+export async function onRequestGet({ params, request }) {
+  const event = params.event;
+  const id = params.id;
+
+  /**
+   * IMPORTANT:
+   * Resolve ONLY allowed / licensed stream URLs here.
+   * Example below is a PUBLIC test stream.
+   */
+  const STREAM_MAP = {
+    test: "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd"
+  };
+
+  const streamUrl = STREAM_MAP[id];
+
+  if (!streamUrl) {
+    return new Response("Stream not found", { status: 404 });
+  }
 
   const html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live Player</title>
+<meta charset="utf-8">
+<title>Live Player</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.ui.min.js" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/controls.min.css" crossorigin="anonymous"/>
 
-    body {
-      background: #000;
-      color: #fff;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .container {
-      width: 100%;
-      max-width: 420px;
-      padding: 24px;
-      text-align: center;
-      background: #0b0b0b;
-      border-radius: 16px;
-      box-shadow: 0 0 40px rgba(0,0,0,0.7);
-    }
-
-    h1 {
-      font-size: 22px;
-      margin-bottom: 12px;
-      color: #22c55e;
-    }
-
-    h2 {
-      font-size: 18px;
-      margin-bottom: 8px;
-    }
-
-    .meta {
-      font-size: 14px;
-      color: #9ca3af;
-      margin-bottom: 20px;
-    }
-
-    .note {
-      font-size: 13px;
-      color: #facc15;
-      background: #1a1a1a;
-      padding: 12px;
-      border-radius: 12px;
-    }
-  </style>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  height: 100%;
+}
+.video-container {
+  position: fixed;
+  inset: 0;
+}
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.rotate-90 { transform: rotate(90deg); }
+.rotate-180 { transform: rotate(180deg); }
+.rotate-270 { transform: rotate(270deg); }
+</style>
 </head>
 
 <body>
-  <div class="container">
-    <h1>Live Stream</h1>
+<div class="video-container" data-shaka-player>
+  <video id="video" autoplay playsinline></video>
+</div>
 
-    <h2>Event: ${event.toUpperCase()}</h2>
-    <div class="meta">Channel ID: ${id}</div>
+<script>
+(async () => {
+  shaka.polyfill.installAll();
+  if (!shaka.Player.isBrowserSupported()) {
+    alert("Browser not supported");
+    return;
+  }
 
-    <div class="note">
-      This is a secure player endpoint.<br/>
-      Stream source is resolved server-side.
-    </div>
-  </div>
+  const video = document.getElementById("video");
+  const player = new shaka.Player(video);
+  const ui = new shaka.ui.Overlay(player, document.body, video);
+
+  ui.configure({
+    controlPanelElements: [
+      "play_pause",
+      "time_and_duration",
+      "spacer",
+      "mute",
+      "volume",
+      "language",
+      "captions",
+      "quality",
+      "picture_in_picture",
+      "fullscreen"
+    ],
+    addBigPlayButton: true
+  });
+
+  // ---- Streaming config (safe) ----
+  player.configure({
+    streaming: {
+      lowLatencyMode: true,
+      bufferingGoal: 15,
+      rebufferingGoal: 2
+    }
+  });
+
+  // ---- Rotation controls ----
+  let rotation = 0;
+  window.addEventListener("keydown", e => {
+    if (e.key === "r") {
+      rotation = (rotation + 90) % 360;
+      video.style.transform = "rotate(" + rotation + "deg)";
+    }
+  });
+
+  // ---- Aspect ratio toggle ----
+  window.addEventListener("keydown", e => {
+    if (e.key === "a") {
+      video.style.objectFit =
+        video.style.objectFit === "contain" ? "cover" : "contain";
+    }
+  });
+
+  try {
+    await player.load("${streamUrl}");
+  } catch (e) {
+    console.error("Load error", e);
+    alert("Failed to load stream");
+  }
+})();
+</script>
+
 </body>
 </html>
 `;
