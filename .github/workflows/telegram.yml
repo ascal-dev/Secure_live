@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Fetch Cloudflare API
         run: |
-          curl -s https://xxxxx.pages.dev/api/live \
+          curl -s https://abcyz..pages.dev/api/live \
           -H "Authorization: Bearer TOKEN" > data.json
 
       - name: Send Telegram Message
@@ -19,7 +19,7 @@ jobs:
           BOT: ${{ secrets.TG_BOT_TOKEN }}
           CHAT: ${{ secrets.TG_CHANNEL_ID }}
         run: |
-          MSG="🏏 Sabse Sasta Live\n\n▶ Watch Now:\nhttps://xxxxx.pages.dev/player/hindi"
+          MSG="🏏 Sabse Sasta Live\n\n▶ Watch Now:\nhttps://abcyz.pages.dev/player/hindi"
           curl -s -X POST https://api.telegram.org/bot$BOT/sendMessage \
           -d chat_id=$CHAT \
           -d text="$MSG"
