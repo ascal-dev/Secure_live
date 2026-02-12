@@ -1,25 +1,68 @@
-name: Auto Telegram Post
+name: Auto Match Telegram Poster
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"   # every 5 minutes
   workflow_dispatch:
 
 jobs:
   post:
     runs-on: ubuntu-latest
-    steps:
-      - name: Fetch Cloudflare API
-        run: |
-          curl -s https://abcyz..pages.dev/api/live \
-          -H "Authorization: Bearer TOKEN" > data.json
 
-      - name: Send Telegram Message
+    steps:
+      - name: Fetch Cricbuzz API
+        run: |
+          curl -s "https://crictv.cricketstream745.workers.dev/?url=https://m.cricbuzz.com/api/home" > data.json
+
+      - name: Process match and post to Telegram
         env:
           BOT: ${{ secrets.TG_BOT_TOKEN }}
           CHAT: ${{ secrets.TG_CHANNEL_ID }}
+          SITE: ${{ secrets.SITE_URL }}
         run: |
-          MSG="🏏 Sabse Sasta Live\n\n▶ Watch Now:\nhttps://abcyz.pages.dev/player/hindi"
-          curl -s -X POST https://api.telegram.org/bot$BOT/sendMessage \
-          -d chat_id=$CHAT \
-          -d text="$MSG"
+          node <<'EOF'
+          const fs = require("fs");
+          const { execSync } = require("child_process");
+
+          let data;
+          try {
+            data = JSON.parse(fs.readFileSync("data.json", "utf8"));
+          } catch (e) {
+            process.exit(0);
+          }
+
+          const match = data?.matches?.[0]?.match?.matchInfo;
+          if (!match) process.exit(0);
+
+          const now = Date.now();
+          const diffMinutes = (match.startDate - now) / 60000;
+
+          // Only post 45 minutes before match
+          if (diffMinutes > 45 || diffMinutes < 0) process.exit(0);
+
+          const series = match.seriesName.toLowerCase();
+          let type = null;
+
+          if (series.includes("ipl")) {
+            type = "ipl";
+          } else if (series.includes("t20")) {
+            type = "t20wc";
+          } else {
+            process.exit(0);
+          }
+
+          const msg =
+            "🏏 " + match.seriesName + "\n" +
+            match.team1.teamSName + " vs " + match.team2.teamSName + "\n\n" +
+            "⏰ " + match.status + "\n\n" +
+            "▶ Watch Live:\n" +
+            process.env.SITE + "/player/" + type + "?token=LIVE";
+
+          execSync(
+            'curl -s -X POST https://api.telegram.org/bot' +
+            process.env.BOT +
+            '/sendMessage ' +
+            '-d chat_id=' + process.env.CHAT + ' ' +
+            '-d text="' + msg + '"'
+          );
+          EOF
