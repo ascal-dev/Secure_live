@@ -1,4 +1,4 @@
-name: Auto Match Telegram Poster (DEBUG)
+name: Auto Match Telegram Poster
 
 on:
   schedule:
@@ -13,10 +13,10 @@ jobs:
       - name: Fetch APIs
         run: |
           curl -s "https://crictv.cricketstream745.workers.dev/?url=https://m.cricbuzz.com/api/home" > match.json
-          echo "=== MATCH JSON ==="
-          cat match.json
+          curl -s "https://matcheslinks-eaa.pages.dev/alternate.json" > source1.json
+          curl -s "https://allrounderfuvk.pages.dev/id.json" > source2.json
 
-      - name: Process & Post
+      - name: Process & Post to Telegram
         env:
           BOT: ${{ secrets.TG_BOT_TOKEN }}
           CHAT: ${{ secrets.TG_CHANNEL_ID }}
@@ -26,51 +26,72 @@ jobs:
           const fs = require("fs");
           const { execSync } = require("child_process");
 
-          const data = JSON.parse(fs.readFileSync("match.json","utf8"));
-          const match = data?.matches?.[0]?.match?.matchInfo;
+          const matchData = JSON.parse(fs.readFileSync("match.json","utf8"));
+          const source1 = JSON.parse(fs.readFileSync("source1.json","utf8"));
+          const source2 = JSON.parse(fs.readFileSync("source2.json","utf8"));
 
-          console.log("MATCH FOUND:", !!match);
+          const match = matchData?.matches?.[0]?.match?.matchInfo;
           if (!match) process.exit(0);
 
-          console.log("SERIES:", match.seriesName);
-          console.log("STATUS:", match.status);
-          console.log("START DATE:", match.startDate);
-          console.log("NOW:", Date.now());
-
           const diff = (match.startDate - Date.now()) / 60000;
-          console.log("MINUTES TO START:", diff);
-
-          // TEMP: allow wider window for testing
-          if (diff > 120 || diff < -10) {
-            console.log("❌ Time condition not met");
-            process.exit(0);
-          }
+          if (diff > 45 || diff < 0) process.exit(0);
 
           const series = match.seriesName.toLowerCase();
           let event = null;
           if (series.includes("ipl")) event = "ipl";
           else if (series.includes("t20")) event = "t20wc";
+          else process.exit(0);
 
-          console.log("EVENT TYPE:", event);
-          if (!event) process.exit(0);
+          const CHANNELS = {
+            t20wc: [
+              "star","jio","ptv","a sports","t sports","nagorik",
+              "maharaja","sirasa","kantipur","ariana",
+              "sky","amazon","supersport","espn",
+              "willow","criclife","astro","icc"
+            ],
+            ipl: [
+              "star","jio","sky","willow","kayo",
+              "osn","supersport","yupp","foxtel"
+            ]
+          };
 
-          const msg =
+          const patterns = CHANNELS[event].map(x => new RegExp(x, "i"));
+
+          let msg =
             "🏏 " + match.seriesName + "\n" +
             match.team1.teamSName + " vs " + match.team2.teamSName + "\n\n" +
             "⏰ " + match.status + "\n\n" +
-            "▶️ Watch Live:\n" +
-            process.env.SITE + "/player/" + event + "/willowbycric\n" +
-            process.env.SITE + "/player/" + event + "/tnt";
+            "▶️ Watch Live\n\n";
 
-          console.log("SENDING MESSAGE:\n", msg);
+          // -------- SOURCE 1 --------
+          msg += "Source 1:\n";
+          let s1count = 0;
+          for (const groupKey in source1) {
+            for (const name in source1[groupKey]) {
+              if (patterns.some(r => r.test(name))) {
+                msg += process.env.SITE + "/player/" + event + "/" + groupKey + "\n";
+                s1count++;
+              }
+            }
+          }
+          if (!s1count) msg += "No channels found\n";
 
-          const res = execSync(
+          // -------- SOURCE 2 --------
+          msg += "\nSource 2:\n";
+          let s2count = 0;
+          for (const i of (source2.iframes || [])) {
+            if (patterns.some(r => r.test(i.name))) {
+              msg += process.env.SITE + "/player/" + event + "/" + i.id + "\n";
+              s2count++;
+            }
+          }
+          if (!s2count) msg += "No channels found\n";
+
+          execSync(
             'curl -s -X POST https://api.telegram.org/bot' +
             process.env.BOT +
             '/sendMessage ' +
             '-d chat_id=' + process.env.CHAT + ' ' +
             '-d text="' + msg + '"'
-          ).toString();
-
-          console.log("TELEGRAM RESPONSE:", res);
+          );
           EOF
