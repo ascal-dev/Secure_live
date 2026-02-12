@@ -1,4 +1,4 @@
-name: Telegram Auto Poster (SAFE)
+name: Telegram Auto Poster (Filtered Channels Only)
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
           curl -s "https://matcheslinks-eaa.pages.dev/alternate.json" > source1.json
           curl -s "https://allrounderfuvk.pages.dev/id.json" > source2.json
 
-      - name: Send Telegram Messages
+      - name: Send filtered links to Telegram
         env:
           BOT: ${{ secrets.TG_BOT_TOKEN }}
           CHAT: ${{ secrets.TG_CHANNEL_ID }}
@@ -26,53 +26,73 @@ jobs:
           const fs = require("fs");
           const { execSync } = require("child_process");
 
+          // -------- helper: send safely to Telegram --------
           function send(text) {
             execSync(
               'curl -s https://api.telegram.org/bot' +
               process.env.BOT +
-              '/sendMessage -d chat_id=' +
-              process.env.CHAT +
-              ' -d disable_web_page_preview=true ' +
-              ' -d text="' + text.replace(/"/g, '\\"') + '"'
+              '/sendMessage ' +
+              '-d chat_id=' + process.env.CHAT + ' ' +
+              '-d disable_web_page_preview=true ' +
+              '-d text="' + text.replace(/"/g, '\\"') + '"'
             );
           }
 
-          function sendChunks(title, links) {
-            let msg = title + "\\n";
+          function sendChunked(links) {
+            let msg = "";
             for (const l of links) {
               if ((msg + l).length > 3500) {
                 send(msg);
-                msg = title + "\\n";
+                msg = "";
               }
-              msg += l + "\\n";
+              msg += l + "\n";
             }
-            if (msg.trim() !== title) send(msg);
+            if (msg.trim()) send(msg);
           }
 
-          const match = JSON.parse(fs.readFileSync("match.json","utf8"))
-            ?.matches?.[0]?.match?.matchInfo;
+          // -------- match check (optional but safe) --------
+          const matchData = JSON.parse(fs.readFileSync("match.json","utf8"));
+          const match = matchData?.matches?.[0]?.match?.matchInfo;
+          if (!match) process.exit(0);
 
-          if (!match) {
-            send("⚠️ No live/upcoming match found");
-            process.exit(0);
-          }
+          // -------- allowed channel regex --------
+          const allowed = [
+            /star\\s*sports\\s*1\\s*hd/i,
+            /sky\\s*nz/i,
+            /willow/i,
+            /prime\\s*in/i
+          ];
 
-          send(
-            "🏏 " + match.seriesName + "\\n" +
-            match.team1.teamSName + " vs " + match.team2.teamSName + "\\n\\n" +
-            "⏰ " + match.status
-          );
-
+          // -------- SOURCE 1 --------
           const s1 = JSON.parse(fs.readFileSync("source1.json","utf8"));
+          const src1Links = [];
+
+          for (const groupKey in s1) {
+            for (const name in s1[groupKey]) {
+              if (allowed.some(r => r.test(name))) {
+                src1Links.push(
+                  process.env.SITE + "/player/t20wc/" + groupKey
+                );
+              }
+            }
+          }
+
+          // -------- SOURCE 2 --------
           const s2 = JSON.parse(fs.readFileSync("source2.json","utf8"));
+          const src2Links = [];
 
-          const src1 = [];
-          for (const g in s1) src1.push(process.env.SITE + "/player/t20wc/" + g);
+          for (const i of (s2.iframes || [])) {
+            if (allowed.some(r => r.test(i.name))) {
+              src2Links.push(
+                process.env.SITE + "/player/t20wc/" + i.id
+              );
+            }
+          }
 
-          const src2 = [];
-          for (const i of (s2.iframes || []))
-            src2.push(process.env.SITE + "/player/t20wc/" + i.id);
+          // -------- send ONLY links --------
+          const finalLinks = [...src1Links, ...src2Links];
 
-          sendChunks("Source 1:", src1);
-          sendChunks("Source 2:", src2);
+          if (finalLinks.length === 0) process.exit(0);
+
+          sendChunked(finalLinks);
           EOF
