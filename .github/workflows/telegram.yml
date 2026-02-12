@@ -2,7 +2,7 @@ name: Auto Match Telegram Poster
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # every 5 minutes
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fetch Cricbuzz API
+      - name: Fetch APIs
         run: |
-          curl -s "https://crictv.cricketstream745.workers.dev/?url=https://m.cricbuzz.com/api/home" > data.json
+          curl -s "https://crictv.cricketstream745.workers.dev/?url=https://m.cricbuzz.com/api/home" > match.json
+          curl -s "https://matcheslinks-eaa.pages.dev/alternate.json" > source1.json
+          curl -s "https://allrounderfuvk.pages.dev/id.json" > source2.json
 
-      - name: Process match and post to Telegram
+      - name: Process & Post to Telegram
         env:
           BOT: ${{ secrets.TG_BOT_TOKEN }}
           CHAT: ${{ secrets.TG_CHANNEL_ID }}
@@ -24,39 +26,42 @@ jobs:
           const fs = require("fs");
           const { execSync } = require("child_process");
 
-          let data;
-          try {
-            data = JSON.parse(fs.readFileSync("data.json", "utf8"));
-          } catch (e) {
-            process.exit(0);
-          }
+          const matchData = JSON.parse(fs.readFileSync("match.json","utf8"));
+          const s1 = JSON.parse(fs.readFileSync("source1.json","utf8"));
+          const s2 = JSON.parse(fs.readFileSync("source2.json","utf8"));
 
-          const match = data?.matches?.[0]?.match?.matchInfo;
+          const match = matchData?.matches?.[0]?.match?.matchInfo;
           if (!match) process.exit(0);
 
-          const now = Date.now();
-          const diffMinutes = (match.startDate - now) / 60000;
-
-          // Only post 45 minutes before match
-          if (diffMinutes > 45 || diffMinutes < 0) process.exit(0);
+          const diff = (match.startDate - Date.now()) / 60000;
+          if (diff > 45 || diff < 0) process.exit(0);
 
           const series = match.seriesName.toLowerCase();
-          let type = null;
+          let event = null;
 
-          if (series.includes("ipl")) {
-            type = "ipl";
-          } else if (series.includes("t20")) {
-            type = "t20wc";
-          } else {
-            process.exit(0);
-          }
+          if (series.includes("ipl")) event = "ipl";
+          else if (series.includes("t20")) event = "t20wc";
+          else process.exit(0);
 
-          const msg =
+          let msg =
             "🏏 " + match.seriesName + "\n" +
             match.team1.teamSName + " vs " + match.team2.teamSName + "\n\n" +
             "⏰ " + match.status + "\n\n" +
-            "▶ Watch Live:\n" +
-            process.env.SITE + "/player/" + type + "?token=LIVE";
+            "▶️ Watch Live:\n\n";
+
+          // ---------- SOURCE 1 ----------
+          msg += "Source 1:\n";
+          for (const groupKey in s1) {
+            for (const name in s1[groupKey]) {
+              msg += process.env.SITE + "/player/" + event + "/" + groupKey + "\n";
+            }
+          }
+
+          // ---------- SOURCE 2 ----------
+          msg += "\nSource 2:\n";
+          for (const i of (s2.iframes || [])) {
+            msg += process.env.SITE + "/player/" + event + "/" + i.id + "\n";
+          }
 
           execSync(
             'curl -s -X POST https://api.telegram.org/bot' +
