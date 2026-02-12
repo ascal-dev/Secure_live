@@ -1,9 +1,9 @@
-name: DEBUG Telegram Poster
+name: Auto Match Telegram Poster
 
 on:
-  workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 jobs:
   post:
@@ -16,14 +16,7 @@ jobs:
           curl -s "https://matcheslinks-eaa.pages.dev/alternate.json" > source1.json
           curl -s "https://allrounderfuvk.pages.dev/id.json" > source2.json
 
-          echo "===== MATCH ====="
-          cat match.json
-          echo "===== SOURCE 1 ====="
-          cat source1.json
-          echo "===== SOURCE 2 ====="
-          cat source2.json
-
-      - name: Process & FORCE Post
+      - name: Build messages & send to Telegram
         env:
           BOT: ${{ secrets.TG_BOT_TOKEN }}
           CHAT: ${{ secrets.TG_CHANNEL_ID }}
@@ -33,52 +26,61 @@ jobs:
           const fs = require("fs");
           const { execSync } = require("child_process");
 
-          console.log("ENV CHECK:", {
-            BOT: !!process.env.BOT,
-            CHAT: process.env.CHAT,
-            SITE: process.env.SITE
-          });
-
           const matchData = JSON.parse(fs.readFileSync("match.json","utf8"));
-          const source1 = JSON.parse(fs.readFileSync("source1.json","utf8"));
-          const source2 = JSON.parse(fs.readFileSync("source2.json","utf8"));
+          const s1 = JSON.parse(fs.readFileSync("source1.json","utf8"));
+          const s2 = JSON.parse(fs.readFileSync("source2.json","utf8"));
 
           const match = matchData?.matches?.[0]?.match?.matchInfo;
-          if (!match) {
-            console.log("NO MATCH FOUND");
-            process.exit(0);
+          if (!match) process.exit(0);
+
+          const diff = (match.startDate - Date.now()) / 60000;
+          if (diff > 45 || diff < -5) process.exit(0);
+
+          const series = match.seriesName.toLowerCase();
+          let event = null;
+          if (series.includes("t20")) event = "t20wc";
+          else if (series.includes("ipl")) event = "ipl";
+          else process.exit(0);
+
+          send(
+            "🏏 " + match.seriesName + "\n" +
+            match.team1.teamSName + " vs " + match.team2.teamSName + "\n\n" +
+            "⏰ " + match.status
+          );
+
+          const src1Links = [];
+          for (const g in s1) {
+            src1Links.push(process.env.SITE + "/player/" + event + "/" + g);
+          }
+          sendChunk("Source 1", src1Links);
+
+          const src2Links = [];
+          for (const i of (s2.iframes || [])) {
+            src2Links.push(process.env.SITE + "/player/" + event + "/" + i.id);
+          }
+          sendChunk("Source 2", src2Links);
+
+          function send(text) {
+            execSync(
+              'curl -s https://api.telegram.org/bot' +
+              process.env.BOT +
+              '/sendMessage -d chat_id=' +
+              process.env.CHAT +
+              ' -d text="' +
+              text.replace(/"/g, '\\"') +
+              '"'
+            );
           }
 
-          console.log("MATCH FOUND:", match.seriesName);
-          console.log("STATUS:", match.status);
-          console.log("START:", new Date(match.startDate).toISOString());
-
-          let msg =
-            "🏏 DEBUG POST\n" +
-            match.seriesName + "\n" +
-            match.team1.teamSName + " vs " + match.team2.teamSName + "\n\n";
-
-          msg += "Source 1:\n";
-          for (const g in source1) {
-            for (const n in source1[g]) {
-              msg += process.env.SITE + "/player/test/" + g + "\n";
+          function sendChunk(title, links) {
+            let msg = title + ":\n";
+            for (const l of links) {
+              if ((msg + l).length > 3500) {
+                send(msg);
+                msg = title + ":\n";
+              }
+              msg += l + "\n";
             }
+            if (msg.trim() !== title + ":") send(msg);
           }
-
-          msg += "\nSource 2:\n";
-          for (const i of (source2.iframes || [])) {
-            msg += process.env.SITE + "/player/test/" + i.id + "\n";
-          }
-
-          console.log("FINAL MESSAGE:\n", msg);
-
-          const res = execSync(
-            'curl -v -X POST https://api.telegram.org/bot' +
-            process.env.BOT +
-            '/sendMessage ' +
-            '-d chat_id=' + process.env.CHAT + ' ' +
-            '-d text="' + msg.replace(/"/g, '\\"') + '"'
-          ).toString();
-
-          console.log("TELEGRAM RESPONSE:", res);
           EOF
