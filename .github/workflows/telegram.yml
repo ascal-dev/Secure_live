@@ -1,4 +1,4 @@
-name: Auto Match Telegram Poster
+name: Auto Match Telegram Poster (DEBUG)
 
 on:
   schedule:
@@ -13,10 +13,10 @@ jobs:
       - name: Fetch APIs
         run: |
           curl -s "https://crictv.cricketstream745.workers.dev/?url=https://m.cricbuzz.com/api/home" > match.json
-          curl -s "https://matcheslinks-eaa.pages.dev/alternate.json" > source1.json
-          curl -s "https://allrounderfuvk.pages.dev/id.json" > source2.json
+          echo "=== MATCH JSON ==="
+          cat match.json
 
-      - name: Process & Post to Telegram
+      - name: Process & Post
         env:
           BOT: ${{ secrets.TG_BOT_TOKEN }}
           CHAT: ${{ secrets.TG_CHANNEL_ID }}
@@ -26,48 +26,51 @@ jobs:
           const fs = require("fs");
           const { execSync } = require("child_process");
 
-          const matchData = JSON.parse(fs.readFileSync("match.json","utf8"));
-          const s1 = JSON.parse(fs.readFileSync("source1.json","utf8"));
-          const s2 = JSON.parse(fs.readFileSync("source2.json","utf8"));
+          const data = JSON.parse(fs.readFileSync("match.json","utf8"));
+          const match = data?.matches?.[0]?.match?.matchInfo;
 
-          const match = matchData?.matches?.[0]?.match?.matchInfo;
+          console.log("MATCH FOUND:", !!match);
           if (!match) process.exit(0);
 
+          console.log("SERIES:", match.seriesName);
+          console.log("STATUS:", match.status);
+          console.log("START DATE:", match.startDate);
+          console.log("NOW:", Date.now());
+
           const diff = (match.startDate - Date.now()) / 60000;
-          if (diff > 45 || diff < 0) process.exit(0);
+          console.log("MINUTES TO START:", diff);
+
+          // TEMP: allow wider window for testing
+          if (diff > 120 || diff < -10) {
+            console.log("❌ Time condition not met");
+            process.exit(0);
+          }
 
           const series = match.seriesName.toLowerCase();
           let event = null;
-
           if (series.includes("ipl")) event = "ipl";
           else if (series.includes("t20")) event = "t20wc";
-          else process.exit(0);
 
-          let msg =
+          console.log("EVENT TYPE:", event);
+          if (!event) process.exit(0);
+
+          const msg =
             "🏏 " + match.seriesName + "\n" +
             match.team1.teamSName + " vs " + match.team2.teamSName + "\n\n" +
             "⏰ " + match.status + "\n\n" +
-            "▶️ Watch Live:\n\n";
+            "▶️ Watch Live:\n" +
+            process.env.SITE + "/player/" + event + "/willowbycric\n" +
+            process.env.SITE + "/player/" + event + "/tnt";
 
-          // ---------- SOURCE 1 ----------
-          msg += "Source 1:\n";
-          for (const groupKey in s1) {
-            for (const name in s1[groupKey]) {
-              msg += process.env.SITE + "/player/" + event + "/" + groupKey + "\n";
-            }
-          }
+          console.log("SENDING MESSAGE:\n", msg);
 
-          // ---------- SOURCE 2 ----------
-          msg += "\nSource 2:\n";
-          for (const i of (s2.iframes || [])) {
-            msg += process.env.SITE + "/player/" + event + "/" + i.id + "\n";
-          }
-
-          execSync(
+          const res = execSync(
             'curl -s -X POST https://api.telegram.org/bot' +
             process.env.BOT +
             '/sendMessage ' +
             '-d chat_id=' + process.env.CHAT + ' ' +
             '-d text="' + msg + '"'
-          );
+          ).toString();
+
+          console.log("TELEGRAM RESPONSE:", res);
           EOF
